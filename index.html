@@ -39,7 +39,7 @@
     .shell { width: min(1500px, 100%); margin: 0 auto; padding: 14px; }
     .hero { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 10px; }
     h1 { margin: 0; color: var(--green-dark); font-family: Georgia, serif; font-size: 1.35rem; line-height: 1.05; letter-spacing: 0; }
-    .workbench { display: grid; grid-template-columns: minmax(720px, 1fr) 330px; gap: 12px; align-items: start; }
+    .workbench { display: grid; grid-template-columns: minmax(720px, 1fr) 390px; gap: 12px; align-items: start; }
     .stack { display: grid; gap: 14px; }
     .card { overflow: hidden; border: 1px solid rgba(24, 52, 43, .08); border-radius: var(--radius); background: rgba(255, 253, 248, .92); box-shadow: var(--shadow); }
     .card-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line); }
@@ -65,6 +65,7 @@
     .offer-add-bar { display: grid; grid-template-columns: minmax(220px, 1fr) auto; gap: 8px; align-items: end; padding: 9px 12px; border-bottom: 1px solid var(--line); background: #fbfdf8; }
     .offer-add-bar .field { margin: 0; }
     .offer-add-bar .btn { min-height: 34px; }
+    .offer-add-status { grid-column: 1 / -1; min-height: 15px; margin: 0; color: var(--muted); font-size: 10px; }
     .quick-add { display: grid; grid-template-columns: minmax(190px, 1fr) auto; gap: 8px; align-items: end; }
     .custom-insurer-row { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) auto; gap: 10px; align-items: end; padding: 0 12px 12px; }
     .custom-insurer-row input[type="file"] { min-height: 36px; padding: 7px; font-size: .78rem; }
@@ -123,7 +124,7 @@
     .compact-card .card-body { padding: 9px; }
     .category-list, .priority-list { display: grid; gap: 5px; overflow-x: hidden; overflow-y: auto; }
     .category-list { max-height: 100px; }
-    .priority-list { max-height: 100px; }
+    .priority-list { max-height: 174px; }
     .category-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 5px; align-items: center; }
     .category-row input { min-height: 30px; padding: 5px 7px; border-radius: 8px; font-size: 11px; }
     .category-row .icon-btn { min-height: 30px; padding: 4px 7px; }
@@ -141,7 +142,7 @@
     .proposal-card { margin-top: 14px; }
     .bottom-settings { display: grid; gap: 12px; margin-top: 14px; }
     .bottom-settings > .card { width: 100%; }
-    .bottom-settings > .compact-card:last-child { min-width: 520px; }
+    .bottom-settings > .compact-card:last-child { width: min(100%, 760px); }
     .bottom-tools { display: grid; gap: 12px; }
     .proposal-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .variant { padding: 0; }
@@ -185,7 +186,8 @@
       .group-collapsed td { padding: 6px 4px; }
       .stats { grid-template-columns: repeat(2, 1fr); }
       .btn { min-height: 48px; }
-      .bottom-settings > .compact-card:last-child { min-width: 0; }
+      .bottom-settings > .compact-card:last-child { width: 100%; }
+      .priority-list { max-height: 174px; }
     }
     @media (max-width: 420px) { .toolbar .btn { flex-basis: 100%; } .stats { grid-template-columns: 1fr; } }
   </style>
@@ -229,8 +231,9 @@
           <div class="field">
             <label for="newInsurer">Додати Страховика</label>
             <select id="newInsurer"></select>
-          </div>
+        </div>
           <button class="btn" id="addOfferBtn" type="button">Додати</button>
+          <p class="offer-add-status" id="offerAddStatus" aria-live="polite"></p>
         </div>
         <div class="table-scroll">
           <table>
@@ -397,6 +400,8 @@
       insurerOrder: 'policy-calculator-insurer-order',
       categoryPreferences: 'policy-calculator-category-preferences',
       collapsedGroups: 'policy-calculator-collapsed-groups',
+      variantOrder: 'policy-calculator-variant-order',
+      offers: 'policy-calculator-offers',
       customInsurers: 'policy-calculator-custom-insurers',
       removedInsurers: 'policy-calculator-removed-insurers',
       signature: 'policy-calculator-signature',
@@ -440,7 +445,7 @@
         name: String(item?.name || '').trim(),
         logo: typeof item?.logo === 'string' && item.logo.startsWith('data:image/') ? item.logo : '',
         groupKey: typeof item?.groupKey === 'string' && item.groupKey ? item.groupKey : `custom-${index}`
-      })).filter((item) => item.name && !seen.has(item.name) && (seen.add(item.name), true));
+      })).filter((item) => item.name && item.name !== 'ТАТАТАТА' && !seen.has(item.name) && (seen.add(item.name), true));
     }
     const initialCustomInsurers = normalizedCustomInsurers();
     let INSURERS = [...BASE_INSURERS, ...initialCustomInsurers.map((item) => item.name)];
@@ -462,14 +467,16 @@
     let nextId = 1;
     let nextGroupId = 1;
     let state;
-    const createGroup = (insurer, category, amount, discounts, groupKey) => {
+    const createGroup = (insurer, category, amount, discounts, groupKey, isDynamic = false) => {
       const groupId = `group-${nextGroupId++}`;
       const stableKey = groupKey || groupId;
       const savedCategory = state?.categoryPreferences?.[stableKey];
       const resolvedCategory = savedCategory || category;
-      return discounts.map((discount) => ({ id: nextId++, groupId, groupKey: stableKey, insurer, category: resolvedCategory, amount, discount, selected: false }));
+      return discounts.map((discount) => ({ id: nextId++, groupId, groupKey: stableKey, insurer, category: resolvedCategory, amount, discount, selected: false, isDynamic }));
     };
-    const createDefaultOffers = () => DEFAULT_GROUPS.flatMap(([insurer, category, amount, discounts], index) => createGroup(insurer, category, amount, discounts, `default-${index}`));
+    const createDefaultOffers = () => DEFAULT_GROUPS
+      .filter(([insurer]) => !initialRemovedInsurers.includes(insurer))
+      .flatMap(([insurer, category, amount, discounts], index) => createGroup(insurer, category, amount, discounts, `default-${index}`));
     state = {
       categories: normalizedCategories(),
       insurerOrder: normalizedInsurerOrder(),
@@ -477,13 +484,44 @@
       collapsedGroups: readStored(STORAGE_KEYS.collapsedGroups, {}),
       customInsurers: initialCustomInsurers,
       removedInsurers: initialRemovedInsurers,
+      variantOrder: [],
       signature: String(readStored(STORAGE_KEYS.signature, '') || ''),
       offers: []
     };
-    state.offers = createDefaultOffers();
+    const savedOffers = readStored(STORAGE_KEYS.offers, null);
+    const normalizeOffer = (offer, index) => {
+      const groupKey = String(offer?.groupKey || `restored-key-${index}`);
+      const isLegacyDynamic = groupKey.startsWith('group-') && !groupKey.startsWith('custom-');
+      return {
+      id: Number(offer?.id) || index + 1,
+      groupId: String(offer?.groupId || `restored-group-${index}`),
+      groupKey,
+      insurer: String(offer?.insurer || '').trim(),
+      category: String(offer?.category || ''),
+      amount: offer?.amount === null || offer?.amount === '' || !Number.isFinite(Number(offer?.amount)) ? null : Math.max(0, Number(offer.amount)),
+      discount: Math.min(100, Math.max(0, Number(offer?.discount) || 0)),
+      selected: Boolean(offer?.selected),
+      isDynamic: Boolean(offer?.isDynamic) || isLegacyDynamic
+      };
+    };
+    const allowedInsurers = new Set(state.insurerOrder);
+    state.offers = Array.isArray(savedOffers) && savedOffers.length
+      ? savedOffers.map(normalizeOffer).filter((offer) => allowedInsurers.has(offer.insurer) && offer.insurer !== 'ТАТАТАТА')
+      : createDefaultOffers();
     state.customInsurers.forEach((item) => {
-      state.offers.push(...createGroup(item.name, state.categories[0] || '', null, [2, 7, 9], item.groupKey));
+      if (allowedInsurers.has(item.name) && !state.offers.some((offer) => offer.insurer === item.name)) {
+        state.offers.push(...createGroup(item.name, state.categories[0] || '', null, [2, 7, 9], item.groupKey));
+      }
     });
+    nextId = Math.max(0, ...state.offers.map((offer) => offer.id)) + 1;
+    nextGroupId = Math.max(0, ...state.offers.map((offer) => Number(String(offer.groupId).replace(/\D/g, '')) || 0)) + 1;
+    state.variantOrder = Array.isArray(readStored(STORAGE_KEYS.variantOrder, []))
+      ? readStored(STORAGE_KEYS.variantOrder, []).filter((key) => state.offers.some((offer) => offer.groupKey === key))
+      : [];
+    writeStored(STORAGE_KEYS.customInsurers, state.customInsurers);
+    writeStored(STORAGE_KEYS.insurerOrder, state.insurerOrder);
+    writeStored(STORAGE_KEYS.variantOrder, state.variantOrder);
+    writeStored(STORAGE_KEYS.offers, state.offers);
     const $ = (id) => document.getElementById(id);
     const money = (value) => new Intl.NumberFormat('uk-UA', { maximumFractionDigits: 0 }).format(Math.round(value)) + ' грн';
     const safe = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;' })[char]);
@@ -508,9 +546,26 @@
       });
       return groups;
     }
+    function activeInsurerSet() {
+      return new Set(state.insurerOrder.filter((insurer) => insurer !== 'ТАТАТАТА'));
+    }
     function orderedGroups() {
       const priority = new Map(state.insurerOrder.map((insurer, index) => [insurer, index]));
-      return groupedOffers().sort((a, b) => (priority.get(a.offers[0].insurer) ?? INSURERS.length) - (priority.get(b.offers[0].insurer) ?? INSURERS.length));
+      const pinned = new Map(state.variantOrder.map((groupKey, index) => [groupKey, index]));
+      return groupedOffers()
+        .filter((group) => activeInsurerSet().has(group.offers[0]?.insurer))
+        .sort((a, b) => {
+          const aDynamic = Boolean(a.offers[0]?.isDynamic);
+          const bDynamic = Boolean(b.offers[0]?.isDynamic);
+          if (aDynamic !== bDynamic) return aDynamic ? -1 : 1;
+          const aPinned = pinned.has(a.offers[0]?.groupKey);
+          const bPinned = pinned.has(b.offers[0]?.groupKey);
+          if (aPinned !== bPinned) return aPinned ? -1 : 1;
+          if (aPinned && pinned.get(a.offers[0].groupKey) !== pinned.get(b.offers[0].groupKey)) {
+            return pinned.get(a.offers[0].groupKey) - pinned.get(b.offers[0].groupKey);
+          }
+          return (priority.get(a.offers[0].insurer) ?? INSURERS.length) - (priority.get(b.offers[0].insurer) ?? INSURERS.length);
+        });
     }
     function isGroupCollapsed(group, groupIndex) {
       const key = group.offers[0]?.groupKey;
@@ -553,7 +608,7 @@
     }
     
     function fillInsurerSelect() {
-      $('newInsurer').innerHTML = INSURERS.map((name) => `<option value="${safe(name)}">${safe(name)}</option>`).join('');
+      $('newInsurer').innerHTML = state.insurerOrder.map((name) => `<option value="${safe(name)}">${safe(name)}</option>`).join('');
     }
     function discountsForInsurer(insurer) {
       const found = DEFAULT_GROUPS.find(([name]) => name === insurer);
@@ -673,6 +728,12 @@
     function saveCollapsedGroups() {
       writeStored(STORAGE_KEYS.collapsedGroups, state.collapsedGroups);
     }
+    function saveVariantOrder() {
+      writeStored(STORAGE_KEYS.variantOrder, state.variantOrder);
+    }
+    function saveOffers() {
+      writeStored(STORAGE_KEYS.offers, state.offers);
+    }
     function moveInsurer(from, to) {
       if (from === to || from < 0 || to < 0 || from >= state.insurerOrder.length || to >= state.insurerOrder.length) return;
       const [moved] = state.insurerOrder.splice(from, 1);
@@ -686,10 +747,21 @@
       const [removed] = state.insurerOrder.splice(index, 1);
       if (!removed) return;
       state.removedInsurers = [...new Set([...state.removedInsurers, removed])];
+      if (state.customInsurers.some((item) => item.name === removed)) {
+        state.customInsurers = state.customInsurers.filter((item) => item.name !== removed);
+        INSURERS = INSURERS.filter((insurer) => insurer !== removed);
+        writeStored(STORAGE_KEYS.customInsurers, state.customInsurers);
+      }
+      state.offers = state.offers.filter((offer) => offer.insurer !== removed);
+      state.variantOrder = state.variantOrder.filter((groupKey) => state.offers.some((offer) => offer.groupKey === groupKey));
       saveInsurerOrder();
       saveRemovedInsurers();
+      saveVariantOrder();
+      saveOffers();
       renderInsurerManager();
+      fillInsurerSelect();
       renderOffers();
+      renderGenerated();
     }
     function updateCategory(index, value) {
       if (index < 0 || index >= state.categories.length) return;
@@ -733,6 +805,7 @@
       if (!offer) return;
       offer[field] = field === 'category' ? value : (value === '' ? null : Math.max(0, Number(value) || 0));
       if (field === 'discount') offer.discount = Math.min(100, offer.discount);
+      saveOffers();
       refreshOfferPrice(offer);
       renderGenerated();
     }
@@ -746,6 +819,7 @@
       }
       if (field === 'category') saveCategoryPreferences();
       if (field === 'amount') offers.forEach(refreshOfferPrice);
+      saveOffers();
       renderGenerated();
     }
     function handleOfferField(event) {
@@ -757,6 +831,7 @@
           offer.selected = target.checked;
           target.closest('tr')?.classList.toggle('selected', target.checked);
         }
+        saveOffers();
         renderGenerated();
         return;
       }
@@ -776,14 +851,28 @@
       }
       const button = event.target.closest('[data-action="remove"]');
       if (!button) return;
-      state.offers = state.offers.filter((offer) => offer.id !== Number(button.dataset.id)); render();
+      const removedOffer = state.offers.find((offer) => offer.id === Number(button.dataset.id));
+      state.offers = state.offers.filter((offer) => offer.id !== Number(button.dataset.id));
+      if (removedOffer && !state.offers.some((offer) => offer.groupId === removedOffer.groupId)) {
+        state.variantOrder = state.variantOrder.filter((groupKey) => groupKey !== removedOffer.groupKey);
+        saveVariantOrder();
+      }
+      saveOffers();
+      render();
     });
     $('addOfferBtn').addEventListener('click', () => {
       const insurer = $('newInsurer').value;
-      const group = createGroup(insurer, state.categories[0] || 'Стандарт', null, discountsForInsurer(insurer));
-      state.insurerOrder = [insurer, ...state.insurerOrder.filter((item) => item !== insurer)];
-      saveInsurerOrder();
+      const status = $('offerAddStatus');
+      if (!insurer || !activeInsurerSet().has(insurer)) {
+        status.textContent = 'Оберіть страховика з активного списку.';
+        return;
+      }
+      const group = createGroup(insurer, state.categories[0] || 'Стандарт', null, discountsForInsurer(insurer), undefined, true);
       state.offers.unshift(...group);
+      state.variantOrder = [group[0].groupKey, ...state.variantOrder.filter((key) => key !== group[0].groupKey)];
+      saveVariantOrder();
+      saveOffers();
+      status.textContent = `${insurer} додано на початок варіантів.`;
       render();
     });
     $('addCustomInsurerBtn').addEventListener('click', () => {
@@ -793,6 +882,7 @@
       const name = nameInput.value.trim();
       const file = logoInput.files?.[0];
       if (!name) { status.textContent = 'Вкажіть назву страхової компанії.'; nameInput.focus(); return; }
+      if (name === 'ТАТАТАТА') { status.textContent = 'Цю назву не можна додати.'; nameInput.focus(); return; }
       if (INSURERS.includes(name)) { status.textContent = 'Така страхова компанія вже є у списку.'; nameInput.focus(); return; }
       if (file && !/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) { status.textContent = 'Оберіть PNG, JPG, JPEG, WEBP або SVG.'; return; }
       const finish = (logo) => {
@@ -804,6 +894,9 @@
         saveInsurerOrder();
         const group = createGroup(name, state.categories[0] || '', null, [2, 7, 9], groupKey);
         state.offers.unshift(...group);
+        state.variantOrder = [groupKey, ...state.variantOrder.filter((key) => key !== groupKey)];
+        saveVariantOrder();
+        saveOffers();
         fillInsurerSelect();
         nameInput.value = '';
         logoInput.value = '';
@@ -837,6 +930,7 @@
       });
       writeStored(STORAGE_KEYS.categories, state.categories);
       writeStored(STORAGE_KEYS.categoryPreferences, state.categoryPreferences);
+      saveOffers();
       renderCategoryManager();
       renderOffers();
     });
@@ -883,6 +977,7 @@
       state.insurerOrder = INSURERS.filter((insurer) => !state.removedInsurers.includes(insurer));
       saveInsurerOrder();
       renderInsurerManager();
+      fillInsurerSelect();
       renderOffers();
     });
     const savedForm = readStored(STORAGE_KEYS.form, {});
@@ -903,13 +998,16 @@
       writeStored(STORAGE_KEYS.signature, state.signature);
       renderTexts();
     });
-    $('selectAllBtn').addEventListener('click', () => { state.offers.forEach((offer) => offer.selected = true); render(); });
-    $('clearSelectionBtn').addEventListener('click', () => { state.offers.forEach((offer) => offer.selected = false); render(); });
+    $('selectAllBtn').addEventListener('click', () => { state.offers.forEach((offer) => offer.selected = true); saveOffers(); render(); });
+    $('clearSelectionBtn').addEventListener('click', () => { state.offers.forEach((offer) => offer.selected = false); saveOffers(); render(); });
     $('resetAllBtn').addEventListener('click', () => {
       state.offers = createDefaultOffers();
       state.customInsurers.forEach((item) => {
         state.offers.push(...createGroup(item.name, state.categories[0] || '', null, [2, 7, 9], item.groupKey));
       });
+      state.variantOrder = state.variantOrder.filter((key) => state.offers.some((offer) => offer.groupKey === key));
+      saveVariantOrder();
+      saveOffers();
       $('clientName').value = '';
       $('carName').value = '';
       $('policyDate').value = '';
@@ -933,6 +1031,7 @@
           removedInsurers: state.removedInsurers,
           categoryPreferences: state.categoryPreferences,
           collapsedGroups: state.collapsedGroups,
+          variantOrder: state.variantOrder,
           customInsurers: state.customInsurers,
           signature: state.signature,
           offers: state.offers
@@ -965,7 +1064,7 @@
         name: String(item?.name || '').trim(),
         logo: typeof item?.logo === 'string' && item.logo.startsWith('data:image/') ? item.logo : '',
         groupKey: typeof item?.groupKey === 'string' && item.groupKey ? item.groupKey : `custom-restored-${index}`
-      })).filter((item) => item.name && !BASE_INSURERS.includes(item.name)) : [];
+      })).filter((item) => item.name && item.name !== 'ТАТАТАТА' && !BASE_INSURERS.includes(item.name)) : [];
       const customNames = [...new Set(custom.map((item) => item.name))];
       state.customInsurers = custom.filter((item, index) => customNames.indexOf(item.name) === index);
       INSURERS = [...BASE_INSURERS, ...state.customInsurers.map((item) => item.name)];
@@ -977,17 +1076,24 @@
       state.insurerOrder = [...new Set([...savedOrder, ...allowed])];
       state.categoryPreferences = saved.categoryPreferences && typeof saved.categoryPreferences === 'object' ? saved.categoryPreferences : {};
       state.collapsedGroups = saved.collapsedGroups && typeof saved.collapsedGroups === 'object' ? saved.collapsedGroups : {};
+      state.variantOrder = Array.isArray(saved.variantOrder) ? saved.variantOrder.map((key) => String(key)) : [];
       state.signature = String(saved.signature || '');
-      state.offers = saved.offers.map((offer, index) => ({
-        id: Number(offer?.id) || index + 1,
-        groupId: String(offer?.groupId || `restored-group-${index}`),
-        groupKey: String(offer?.groupKey || `restored-key-${index}`),
-        insurer: String(offer?.insurer || ''),
-        category: String(offer?.category || ''),
-        amount: offer?.amount === null || offer?.amount === '' || !Number.isFinite(Number(offer?.amount)) ? null : Math.max(0, Number(offer.amount)),
-        discount: Math.min(100, Math.max(0, Number(offer?.discount) || 0)),
-        selected: Boolean(offer?.selected)
-      })).filter((offer) => offer.insurer);
+      state.offers = saved.offers.map((offer, index) => {
+        const groupKey = String(offer?.groupKey || `restored-key-${index}`);
+        const isLegacyDynamic = groupKey.startsWith('group-') && !groupKey.startsWith('custom-');
+        return {
+          id: Number(offer?.id) || index + 1,
+          groupId: String(offer?.groupId || `restored-group-${index}`),
+          groupKey,
+          insurer: String(offer?.insurer || ''),
+          category: String(offer?.category || ''),
+          amount: offer?.amount === null || offer?.amount === '' || !Number.isFinite(Number(offer?.amount)) ? null : Math.max(0, Number(offer.amount)),
+          discount: Math.min(100, Math.max(0, Number(offer?.discount) || 0)),
+          selected: Boolean(offer?.selected),
+          isDynamic: Boolean(offer?.isDynamic) || isLegacyDynamic
+        };
+      }).filter((offer) => offer.insurer && allowed.has(offer.insurer) && offer.insurer !== 'ТАТАТАТА');
+      state.variantOrder = state.variantOrder.filter((key) => state.offers.some((offer) => offer.groupKey === key));
       nextId = Math.max(0, ...state.offers.map((offer) => offer.id)) + 1;
       nextGroupId = Math.max(0, ...state.offers.map((offer) => Number(String(offer.groupId).replace(/\D/g, '')) || 0)) + 1;
       writeStored(STORAGE_KEYS.categories, state.categories);
@@ -995,6 +1101,8 @@
       writeStored(STORAGE_KEYS.removedInsurers, state.removedInsurers);
       writeStored(STORAGE_KEYS.categoryPreferences, state.categoryPreferences);
       writeStored(STORAGE_KEYS.collapsedGroups, state.collapsedGroups);
+      writeStored(STORAGE_KEYS.variantOrder, state.variantOrder);
+      writeStored(STORAGE_KEYS.offers, state.offers);
       writeStored(STORAGE_KEYS.customInsurers, state.customInsurers);
       writeStored(STORAGE_KEYS.signature, state.signature);
       $('clientName').value = String(payload.form?.clientName || '');
